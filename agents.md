@@ -55,3 +55,16 @@ Only inward dependencies are allowed (outer layers depend on inner abstractions,
 - Tests are added/updated first (or alongside) and pass.
 - Security checks are considered and relevant tests are present.
 - markdown and website documentation is updated when architecture or behaviour changes.
+
+## Shared agent skills
+
+Shared skills live in [MaximumTrainer/agent-skills](https://github.com/MaximumTrainer/agent-skills). Before writing a new
+skill, runbook or repeated procedure, check the catalogue - and send genuinely
+general improvements back so the other repositories get them too.
+
+```bash
+python3 .claude/skills/skill-exchange/scripts/skills.py list
+python3 .claude/skills/skill-exchange/scripts/skills.py status
+```
+
+See `.claude/skills/skill-exchange/` for the workflow.
