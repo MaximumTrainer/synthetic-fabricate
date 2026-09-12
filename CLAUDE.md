@@ -94,3 +94,16 @@ The body is prose explaining **why**, and names any defect the work uncovered. T
 ```
 Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
 ```
+
+## Shared agent skills
+
+Shared skills live in [MaximumTrainer/agent-skills](https://github.com/MaximumTrainer/agent-skills). Before writing a new
+skill, runbook or repeated procedure, check the catalogue - and send genuinely
+general improvements back so the other repositories get them too.
+
+```bash
+python3 .claude/skills/skill-exchange/scripts/skills.py list
+python3 .claude/skills/skill-exchange/scripts/skills.py status
+```
+
+See `.claude/skills/skill-exchange/` for the workflow.
