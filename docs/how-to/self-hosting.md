@@ -195,17 +195,28 @@ the hosted shape. Swagger UI is at `http://localhost:8080/swagger`.
 
 ## Fly.io (reference deployment)
 
-Why Fly: it runs the unchanged image, offers PostgreSQL on a private network next to the API, injects secrets as
-environment variables, health-checks `/healthz`, and scales to zero.
+Why Fly: it runs the unchanged image, injects secrets as environment variables, health-checks `/healthz`, scales to
+zero, and charges no plan fee or minimum — so an idle instance costs close to nothing. It can also put PostgreSQL on a
+private network next to the API, though that is the expensive option rather than the default one; see [Cost](#cost).
 
 1. Fork the repository and install `flyctl`.
 2. `fly launch --no-deploy` (accepts the checked-in `fly.toml`; choose your app name and region).
-3. Create and attach PostgreSQL — this sets `FABRICATE_CONNECTION_STRING` as a secret for you:
+3. Attach a PostgreSQL database. **Which one you pick dominates the bill** — see [Cost](#cost).
+
+   *Recommended for a low-cost instance* — an external free-tier PostgreSQL such as [Neon](https://neon.tech).
+   Set the secret by hand; `SSL Mode=Require` is mandatory for any database outside Fly's private network:
    ```bash
-   fly postgres create --name fabricate-db --region lhr
-   fly postgres attach fabricate-db --app fabricate --variable-name FABRICATE_CONNECTION_STRING
+   fly secrets set FABRICATE_CONNECTION_STRING="Host=ep-xxx.neon.tech;Database=fabricate;Username=…;Password=…;SSL Mode=Require"
    ```
-   (Or use Fly Managed Postgres, or set the secret by hand for Neon/Supabase — with `SSL Mode=Require`.)
+
+   *If you want the database on the private network* — Fly Managed Postgres, from $38/month:
+   ```bash
+   fly mpg create --name fabricate-db --region lhr
+   fly mpg attach fabricate-db --app fabricate --variable-name FABRICATE_CONNECTION_STRING
+   ```
+
+   Do **not** use `fly postgres create`. That is unmanaged Fly Postgres, which Fly has deprecated and will not
+   support, so it is not a foundation to build on however cheap it looks.
 4. Set the remaining secrets — these never enter GitHub:
    ```bash
    fly secrets set FABRICATE__BootstrapApiKey="$(openssl rand -base64 32)"
@@ -308,7 +319,8 @@ do — and safe to run while the API is up.
 - **Railway** — create a service from the repository (Dockerfile auto-detected) and add the PostgreSQL plugin; set the
   same variables as `.env.example`, with `FABRICATE_CONNECTION_STRING` from the plugin's connection URL.
 - **Cloudflare Containers + Neon** — viable now that the API is stateless; documented only, no maintained pipeline.
-  Cloudflare **Workers** cannot run .NET; Cloudflare **Pages** is a good host for this `docs/` site.
+  Cloudflare **Workers** cannot run .NET; Cloudflare **Pages** is a good host for this `docs/` site. Not cheaper than
+  Fly for this workload — Containers require the $5/month Workers Paid plan before any usage. See [Cost](#cost).
 - **AWS / Azure / GCP with Terraform** — the production-grade path under `infra/`. The stacks set
   `FABRICATE_DB_PROVIDER=postgres` and `FABRICATE_CONNECTION_STRING` to the database they provision, so state is
   durable there too; add the `FABRICATE_LLM_*` variables and your key secret to enable chat.
@@ -354,11 +366,37 @@ Today's tools all return `Metadata`, so the boundary changes nothing for them. I
 will need it — NoSQL discovery samples documents to infer field types, data profilers compute per-column
 statistics, and any future "explain this data" tool sends values by construction.
 
-## Cost (Fly reference configuration)
+## Cost
 
-Assumptions: one `shared-cpu-1x` 512 MB machine that stops when idle, the smallest PostgreSQL plan, light usage. The
-database is the floor of the bill because it does not scale to zero; an external free-tier PostgreSQL (e.g. Neon) is
-the lowest-cost option. Check Fly's current pricing page for figures — they change more often than this document.
+Published rates, checked 14 September 2026. They move more often than this document does — re-check before you rely
+on them.
+
+**The database dominates the bill, not the host.** The API scales to zero and costs pennies while idle. The database
+does not scale to zero, so it is the floor — and the choice between the two options below is a factor of ten, where
+the choice of hosting platform is a couple of dollars.
+
+| Reference configuration | Approximate monthly |
+| --- | --- |
+| Fly machine scaling to zero + external free-tier PostgreSQL (Neon) | **$1—3** |
+| Fly machine scaling to zero + Fly Managed Postgres (Basic) | **$38+**, plus $0.28 per provisioned GB |
+
+The figures behind that: `shared-cpu-1x` 256 MB is $1.94/month run continuously and is billed by the second, so a
+machine that sleeps costs a fraction of it; volumes are $0.15/GB/month; Fly has **no free tier and no minimum monthly
+charge**. Neon's free tier gives 0.5 GB of storage and 100 compute-hours a month, and autosuspends after five minutes
+idle.
+
+### Why not Cloudflare
+
+Cloudflare **Workers** cannot run .NET at all. Cloudflare **Containers** can, but it requires the **$5/month Workers
+Paid plan before any usage at all**, where Fly has no minimum — so for an idle-heavy instance Fly is the cheaper of
+the two, and the gap widens the more it sleeps. Cloudflare also has no PostgreSQL (D1 is SQLite, not Postgres), so an
+external database is needed there too: the database decision is identical on both platforms, and it is the one that
+matters. Containers would additionally need a Worker plus Durable Object front end and a deploy pipeline this
+repository does not have.
+
+Use Cloudflare for what it is genuinely cheapest at: **R2** for generated artifacts — free-tier storage, no egress
+charges, and the S3 API that `FABRICATE_ARTIFACT_STORE=s3` already speaks. That works perfectly well from a
+Fly-hosted instance; the two are not an either/or.
 
 ## Health and readiness
 

@@ -3,8 +3,10 @@
 # The API is stateless: all durable state lives in PostgreSQL, so machines can scale to zero and back, and the
 # count can exceed one with no configuration change. Secrets are NEVER set here — see `fly secrets set` in
 # docs/how-to/self-hosting.md:
-#   FABRICATE_CONNECTION_STRING   PostgreSQL connection string (set automatically by `fly postgres attach` /
-#                                 `fly mpg attach`, or by hand for an external database)
+#   FABRICATE_CONNECTION_STRING   PostgreSQL connection string. Set it by hand for an external free-tier database
+#                                 (Neon/Supabase, the low-cost default), or let `fly mpg attach` write it for Fly
+#                                 Managed Postgres. NOT `fly postgres attach` - unmanaged Fly Postgres is
+#                                 deprecated and unsupported. See docs/how-to/self-hosting.md, "Cost".
 #   FABRICATE__BootstrapApiKey    first-run API key
 #   <your LLM key variable>       the variable that FABRICATE_LLM_API_KEY_SECRET names, e.g. ANTHROPIC_API_KEY
 
