@@ -216,6 +216,10 @@ environment variables, health-checks `/healthz`, and scales to zero.
 6. Push to `main`. The [deploy workflow](../../.github/workflows/deploy-fly.yml) builds remotely, deploys, waits for
    `/healthz` through the cold start, and runs the smoke tests — and fails if they were skipped rather than executed.
 
+   Until step 5 is done the workflow's preflight job finds no `FLY_API_TOKEN`, reports that no Fly deployment is
+   configured, and skips the deploy and its verification. That is why a fresh clone is not red on every push. The
+   gate is about configuration only: once the token exists, a deploy that goes wrong still fails loudly.
+
 Rotating any secret is `fly secrets set …`; it restarts the machine and needs no redeploy. Scaling out is
 `fly scale count 2` — the API is stateless.
 

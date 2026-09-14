@@ -43,18 +43,49 @@ public sealed class AgentClarificationLiveEvalTests(ITestOutputHelper output)
     /// </summary>
     private const double MinimumPassRate = 6d / 7d;
 
-    private static string? ApiKey =>
-        Environment.GetEnvironmentVariable("FABRICATE_LIVE_LLM_API_KEY")
-        ?? Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY");
+    /// <summary>
+    /// Reads an environment variable, treating blank as absent.
+    ///
+    /// <para>
+    /// This matters more than it looks. A workflow writes <c>FABRICATE_LIVE_LLM_API_KEY: ${{ secrets.… }}</c>
+    /// unconditionally, so an unconfigured secret arrives as an <em>empty string</em>, not an absent variable — and
+    /// on Linux .NET hands that back as <c>""</c> rather than <c>null</c>. A <c>is null</c> gate therefore lets it
+    /// straight through, and the eval spends a scheduled run discovering that the provider rejects a blank
+    /// credential (401). It also silently defeats the <c>ANTHROPIC_API_KEY</c> fallback below, because
+    /// <c>"" ?? x</c> is <c>""</c>. The smoke suite's fixture already gates this way.
+    /// </para>
+    /// </summary>
+    private static string? Env(string name)
+    {
+        var value = Environment.GetEnvironmentVariable(name);
+        return string.IsNullOrWhiteSpace(value) ? null : value;
+    }
 
-    private static string Model =>
-        Environment.GetEnvironmentVariable("FABRICATE_LIVE_LLM_MODEL") ?? "claude-opus-5";
+    private static string? ApiKey => Env("FABRICATE_LIVE_LLM_API_KEY") ?? Env("ANTHROPIC_API_KEY");
+
+    private static string Model => Env("FABRICATE_LIVE_LLM_MODEL") ?? "claude-opus-5";
+
+    /// <summary>
+    /// Whether the caller has declared that this eval must really run. CI sets it once it has seen a key in the job
+    /// environment, so a key that is configured but does not reach the test is a red run rather than a quiet pass —
+    /// the same protection <c>SMOKE_REQUIRE_EXECUTION</c> gives the smoke suite (#61, #90, #91).
+    /// </summary>
+    private static bool ExecutionRequired =>
+        Environment.GetEnvironmentVariable("FABRICATE_REQUIRE_LIVE_EVAL") == "1";
 
     [Fact]
     public async Task TheAgentAsksBeforeActingOnAnAmbiguousRequestAndProceedsOnASpecificOne()
     {
         if (ApiKey is null)
         {
+            if (ExecutionRequired)
+            {
+                throw new InvalidOperationException(
+                    "FABRICATE_REQUIRE_LIVE_EVAL=1 says this eval must call a real model, but neither " +
+                    "FABRICATE_LIVE_LLM_API_KEY nor ANTHROPIC_API_KEY carries a value. Skipping here would " +
+                    "report success for behaviour nothing checked.");
+            }
+
             output.WriteLine(
                 "Clarifying-question behaviour NOT exercised against a live model: set FABRICATE_LIVE_LLM_API_KEY " +
                 "(or ANTHROPIC_API_KEY) to run it. The prompt contract and harness behaviour are covered offline " +

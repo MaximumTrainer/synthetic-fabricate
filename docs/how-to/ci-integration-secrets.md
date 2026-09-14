@@ -68,6 +68,7 @@ Whether the agent asks before acting is the model's judgement, so it can only be
 | --- | --- |
 | `FABRICATE_LIVE_LLM_API_KEY` | An Anthropic API key. `ANTHROPIC_API_KEY` is also read, for a local run. |
 | `FABRICATE_LIVE_LLM_MODEL` | *(optional, a repository variable)* Model id; defaults to `claude-opus-5`. |
+| `FABRICATE_REQUIRE_LIVE_EVAL` | *(set by CI)* `1` turns the eval's self-skip into a failure. |
 
 It costs one API call per fixture — seven at present — and reports a **pass rate** rather than asserting each
 fixture, because a model's reply is not deterministic and a suite that fails on one borderline prompt would be
@@ -82,6 +83,21 @@ dotnet test --filter "FullyQualifiedName~AgentClarificationLiveEvalTests" --logg
 Without the key the test prints that behaviour was **not** verified and points at
 `AgentClarificationEvalTests`, which covers the prompt contract and the harness offline.
 
+### Blank is not the same as absent
+
+A workflow writes `FABRICATE_LIVE_LLM_API_KEY: ${{ secrets.FABRICATE_LIVE_LLM_API_KEY }}` unconditionally, so an
+unconfigured secret reaches the job as an **empty string** rather than an absent variable — and on Linux .NET
+returns that as `""`, not `null`. A gate written as `is null` therefore lets it straight through, and the eval
+spends the run discovering that the provider rejects a blank credential with a 401. That is what turned the
+scheduled run red for a secret nobody had set. The gate treats blank as absent, which also restores the
+`ANTHROPIC_API_KEY` fallback above — `"" ?? x` is `""`, so the fallback never fired either.
+
+The mirror image of that mistake is a key that *is* configured but does not reach the test — a secret scoped to
+the wrong environment, say. That would skip quietly and report success. `FABRICATE_REQUIRE_LIVE_EVAL=1` closes it:
+the workflow sets it once it has seen a key in the job environment, and the skip becomes a failure. It is the same
+protection `SMOKE_REQUIRE_EXECUTION` gives the smoke suite, and it lives in the test rather than the YAML so it
+cannot be lost by editing the workflow.
+
 ## Which gates which
 
 | Test class | Gate |
@@ -93,6 +109,7 @@ Without the key the test prints that behaviour was **not** verified and points a
 | `AgentClarificationLiveEvalTests` | `FABRICATE_LIVE_LLM_API_KEY` or `ANTHROPIC_API_KEY` |
 
 A secret that is present but wrong produces a **failing** test, not a skipped one, so misconfiguration is visible.
+A secret that is present but **blank** counts as absent, not as wrong — see above.
 
 ## Hygiene
 
