@@ -141,8 +141,24 @@ docker compose up --build
 curl -s http://localhost:8080/healthz</code></pre>
 <p>Compose runs the API against PostgreSQL with a persisted volume for the Data Protection key ring, so the local shape is the hosted shape. Swagger UI is at <code>http://localhost:8080/swagger</code>.</p>
 <h2 id="fly-io-reference-deployment">Fly.io (reference deployment)</h2>
-<p>Why Fly: it runs the unchanged image, offers PostgreSQL on a private network next to the API, injects secrets as environment variables, health-checks <code>/healthz</code>, and scales to zero.</p>
-<ol><li>Fork the repository and install <code>flyctl</code>.</li><li><code>fly launch --no-deploy</code> (accepts the checked-in <code>fly.toml</code>; choose your app name and region).</li><li>Create and attach PostgreSQL — this sets <code>FABRICATE_CONNECTION_STRING</code> as a secret for you: ``<code>bash fly postgres create --name fabricate-db --region lhr fly postgres attach fabricate-db --app fabricate --variable-name FABRICATE_CONNECTION_STRING </code>`<code> (Or use Fly Managed Postgres, or set the secret by hand for Neon/Supabase — with </code>SSL Mode=Require`.)</li><li>Set the remaining secrets — these never enter GitHub: ``<code>bash fly secrets set FABRICATE__BootstrapApiKey="$(openssl rand -base64 32)" fly secrets set ANTHROPIC_API_KEY="sk-ant-…" </code>``</li><li>In GitHub: add <code>FLY_API_TOKEN</code> (<code>fly tokens create deploy -x 999999h</code>) as a secret, <code>SMOKE_API_KEY</code> (the bootstrap key) as a secret in an environment named <code>fly</code>, and optionally <code>FLY_APP</code> as a variable.</li><li>Push to <code>main</code>. The <a href="../../.github/workflows/deploy-fly.yml">deploy workflow</a> builds remotely, deploys, waits for <code>/healthz</code> through the cold start, and runs the smoke tests — and fails if they were skipped rather than executed.<p>Until step 5 is done the workflow's preflight job finds no <code>FLY_API_TOKEN</code>, reports that no Fly deployment is configured, and skips the deploy and its verification. That is why a fresh clone is not red on every push. The gate is about configuration only: once the token exists, a deploy that goes wrong still fails loudly.</p></li></ol>
+<p>Why Fly: it runs the unchanged image, injects secrets as environment variables, health-checks <code>/healthz</code>, scales to zero, and charges no plan fee or minimum — so an idle instance costs close to nothing. It can also put PostgreSQL on a private network next to the API, though that is the expensive option rather than the default one; see <a href="#cost">Cost</a>.</p>
+<ol>
+<li>Fork the repository and install <code>flyctl</code>.</li>
+<li><code>fly launch --no-deploy</code> (accepts the checked-in <code>fly.toml</code>; choose your app name and region).</li>
+<li>Attach a PostgreSQL database. <strong>Which one you pick dominates the bill</strong> — see <a href="#cost">Cost</a>.
+<p><em>Recommended for a low-cost instance</em> — an external free-tier PostgreSQL such as <a href="https://neon.tech">Neon</a>. Set the secret by hand; <code>SSL Mode=Require</code> is mandatory for any database outside Fly's private network:</p>
+<pre><code>fly secrets set FABRICATE_CONNECTION_STRING=&quot;Host=ep-xxx.neon.tech;Database=fabricate;Username=…;Password=…;SSL Mode=Require&quot;</code></pre>
+<p><em>If you want the database on the private network</em> — Fly Managed Postgres, from $38/month:</p>
+<pre><code>fly mpg create --name fabricate-db --region lhr
+fly mpg attach fabricate-db --app fabricate --variable-name FABRICATE_CONNECTION_STRING</code></pre>
+<p>Do <strong>not</strong> use <code>fly postgres create</code>. That is unmanaged Fly Postgres, which Fly has deprecated and will not support, so it is not a foundation to build on however cheap it looks.</p></li>
+<li>Set the remaining secrets — these never enter GitHub:
+<pre><code>fly secrets set FABRICATE__BootstrapApiKey=&quot;$(openssl rand -base64 32)&quot;
+fly secrets set ANTHROPIC_API_KEY=&quot;sk-ant-…&quot;</code></pre></li>
+<li>In GitHub: add <code>FLY_API_TOKEN</code> (<code>fly tokens create deploy -x 999999h</code>) as a secret, <code>SMOKE_API_KEY</code> (the bootstrap key) as a secret in an environment named <code>fly</code>, and optionally <code>FLY_APP</code> as a variable.</li>
+<li>Push to <code>main</code>. The <a href="../../.github/workflows/deploy-fly.yml">deploy workflow</a> builds remotely, deploys, waits for <code>/healthz</code> through the cold start, and runs the smoke tests — and fails if they were skipped rather than executed.
+<p>Until step 5 is done the workflow's preflight job finds no <code>FLY_API_TOKEN</code>, reports that no Fly deployment is configured, and skips the deploy and its verification. That is why a fresh clone is not red on every push. The gate is about configuration only: once the token exists, a deploy that goes wrong still fails loudly.</p></li>
+</ol>
 <p>Rotating any secret is <code>fly secrets set …</code>; it restarts the machine and needs no redeploy. Scaling out is <code>fly scale count 2</code> — the API is stateless.</p>
 <h3 id="cold-start">Cold start</h3>
 <p>With <code>min_machines_running = 0</code> the first request after idle starts a machine. Measure it after your first deploy:</p>
@@ -181,7 +197,7 @@ FABRICATE_DATA_PROTECTION_ALLOW_UNWRAPPED=true</code></pre>
 <ul><li><strong>Railway</strong> — create a service from the repository (Dockerfile auto-detected) and add the PostgreSQL plugin; set the</li></ul>
 <p>same variables as <code>.env.example</code>, with <code>FABRICATE_CONNECTION_STRING</code> from the plugin's connection URL.</p>
 <ul><li><strong>Cloudflare Containers + Neon</strong> — viable now that the API is stateless; documented only, no maintained pipeline.</li></ul>
-<p>Cloudflare <strong>Workers</strong> cannot run .NET; Cloudflare <strong>Pages</strong> is a good host for this <code>docs/</code> site.</p>
+<p>Cloudflare <strong>Workers</strong> cannot run .NET; Cloudflare <strong>Pages</strong> is a good host for this <code>docs/</code> site. Not cheaper than Fly for this workload — Containers require the $5/month Workers Paid plan before any usage. See <a href="#cost">Cost</a>.</p>
 <ul><li><strong>AWS / Azure / GCP with Terraform</strong> — the production-grade path under <code>infra/</code>. The stacks set</li></ul>
 <p><code>FABRICATE_DB_PROVIDER=postgres</code> and <code>FABRICATE_CONNECTION_STRING</code> to the database they provision, so state is durable there too; add the <code>FABRICATE_LLM_*</code> variables and your key secret to enable chat.</p>
 <h2 id="egress-profile">Egress profile</h2>
@@ -209,8 +225,20 @@ FABRICATE_DATA_PROTECTION_ALLOW_UNWRAPPED=true</code></pre>
 <p><strong>It cannot be enabled at all on a <code>Healthcare</code> or <code>Finance</code> workspace.</strong> The request is refused with <code>409</code> and an explanation, and the policy is left exactly as it was — refused rather than silently ignored, because an administrator told "saved" while the setting did not take is worse off than one told why it cannot be. A workspace's compliance profile is fixed when it is created. The profile is also re-checked at every decision, so an opt-in written before a profile changed does not survive the change.</p>
 <p>Every refusal is audited as <code>llm.boundary_blocked</code> with the tool name and content class, and never the payload.</p>
 <p>Today's tools all return <code>Metadata</code>, so the boundary changes nothing for them. It exists ahead of the tools that will need it — NoSQL discovery samples documents to infer field types, data profilers compute per-column statistics, and any future "explain this data" tool sends values by construction.</p>
-<h2 id="cost-fly-reference-configuration">Cost (Fly reference configuration)</h2>
-<p>Assumptions: one <code>shared-cpu-1x</code> 512 MB machine that stops when idle, the smallest PostgreSQL plan, light usage. The database is the floor of the bill because it does not scale to zero; an external free-tier PostgreSQL (e.g. Neon) is the lowest-cost option. Check Fly's current pricing page for figures — they change more often than this document.</p>
+<h2 id="cost">Cost</h2>
+<p>Published rates, checked 14 September 2026. They move more often than this document does — re-check before you rely on them.</p>
+<p><strong>The database dominates the bill, not the host.</strong> The API scales to zero and costs pennies while idle. The database does not scale to zero, so it is the floor — and the choice between the two options below is a factor of ten, where the choice of hosting platform is a couple of dollars.</p>
+<table>
+<thead><tr><th>Reference configuration</th><th>Approximate monthly</th></tr></thead>
+<tbody>
+<tr><td>Fly machine scaling to zero + external free-tier PostgreSQL (Neon)</td><td><strong>$1—3</strong></td></tr>
+<tr><td>Fly machine scaling to zero + Fly Managed Postgres (Basic)</td><td><strong>$38+</strong>, plus $0.28 per provisioned GB</td></tr>
+</tbody>
+</table>
+<p>The figures behind that: <code>shared-cpu-1x</code> 256 MB is $1.94/month run continuously and is billed by the second, so a machine that sleeps costs a fraction of it; volumes are $0.15/GB/month; Fly has <strong>no free tier and no minimum monthly charge</strong>. Neon's free tier gives 0.5 GB of storage and 100 compute-hours a month, and autosuspends after five minutes idle.</p>
+<h3 id="why-not-cloudflare">Why not Cloudflare</h3>
+<p>Cloudflare <strong>Workers</strong> cannot run .NET at all. Cloudflare <strong>Containers</strong> can, but it requires the <strong>$5/month Workers Paid plan before any usage at all</strong>, where Fly has no minimum — so for an idle-heavy instance Fly is the cheaper of the two, and the gap widens the more it sleeps. Cloudflare also has no PostgreSQL (D1 is SQLite, not Postgres), so an external database is needed there too: the database decision is identical on both platforms, and it is the one that matters. Containers would additionally need a Worker plus Durable Object front end and a deploy pipeline this repository does not have.</p>
+<p>Use Cloudflare for what it is genuinely cheapest at: <strong>R2</strong> for generated artifacts — free-tier storage, no egress charges, and the S3 API that <code>FABRICATE_ARTIFACT_STORE=s3</code> already speaks. That works perfectly well from a Fly-hosted instance; the two are not an either/or.</p>
 <h2 id="health-and-readiness">Health and readiness</h2>
 <p><code>GET /healthz</code> (unauthenticated) reports <code>status</code>, a <code>database</code> state and an <code>llm</code> block. It never includes a secret, a connection string or an exception message — the reason for a failure is in the logs, not in a response anyone can fetch.</p>
 <p>The two dependencies are treated differently, because they fail differently:</p>
