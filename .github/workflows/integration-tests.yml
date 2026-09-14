@@ -88,8 +88,11 @@ jobs:
         run: |
           if [ -n "$FABRICATE_LIVE_LLM_API_KEY" ]; then
             echo "enabled: FABRICATE_LIVE_LLM_API_KEY is set; the eval will call a real model."
+            # The job has a key, so the eval must genuinely run. This turns the suite's self-skip into a failure,
+            # so a key that is configured here but does not reach the test is red rather than a quiet pass (#91).
+            echo "FABRICATE_REQUIRE_LIVE_EVAL=1" >> "$GITHUB_ENV"
           else
-            echo "skipped: FABRICATE_LIVE_LLM_API_KEY is not set; clarifying-question behaviour will NOT be verified."
+            echo "::notice::FABRICATE_LIVE_LLM_API_KEY is not set; clarifying-question behaviour will NOT be verified. The eval will skip and say so. Set the secret on the 'integration' environment to enable it."
           fi
 
       - run: dotnet restore Fabricate.slnx

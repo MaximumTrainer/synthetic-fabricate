@@ -5,6 +5,14 @@ name: Deploy to Fly.io
 #
 # Job 1 deploys with a remote build. Job 2 waits for /healthz through the cold start and runs the smoke tests,
 # and FAILS if the smoke tests were skipped rather than executed — closing the silent-skip gap from #59.
+#
+# Both are preceded by a preflight that asks whether this repository has a Fly deployment at all. Without
+# FLY_API_TOKEN there is nothing to deploy to, and flyctl exits "no access token available" — which painted main
+# red on every single push. A fork or a clone has no reason to be red for a deployment it was never given. The
+# preflight reports the absence and skips the deploy; set the secret and the jobs below run exactly as before.
+#
+# Note this gate is about *configuration*, not outcome: once FLY_API_TOKEN exists, a deploy that goes wrong still
+# fails loudly, and the verify job still refuses to pass without real smoke tests.
 
 on:
   push:
@@ -24,9 +32,30 @@ env:
   DOTNET_VERSION: "10.0.x"
 
 jobs:
+  preflight:
+    name: Preflight (is Fly configured?)
+    runs-on: ubuntu-latest
+    # The token is an environment secret, so this job must name the environment to see it.
+    environment: fly
+    outputs:
+      configured: ${{ steps.check.outputs.configured }}
+    steps:
+      - name: Check for FLY_API_TOKEN (the token is never printed)
+        id: check
+        run: |
+          if [ -n "$FLY_API_TOKEN" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+            echo "FLY_API_TOKEN is set; deploying to ${FLY_APP}."
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No Fly deployment is configured for this repository, so the deploy and its verification are skipped. To enable them, set the FLY_API_TOKEN secret (and SMOKE_API_KEY) on the 'fly' environment."
+          fi
+
   deploy:
     name: Deploy
     runs-on: ubuntu-latest
+    needs: preflight
+    if: needs.preflight.outputs.configured == 'true'
     environment: fly
     outputs:
       hostname: ${{ steps.host.outputs.hostname }}
@@ -55,7 +84,8 @@ jobs:
 
   verify:
     name: Verify (health + smoke tests)
-    needs: deploy
+    needs: [preflight, deploy]
+    if: needs.preflight.outputs.configured == 'true'
     runs-on: ubuntu-latest
     environment: fly
     env:
