@@ -113,11 +113,11 @@ FABRICATE_AUDIT_SWEEP_MINUTES=360    # sweep every six hours (the default)</code
 <thead><tr><th>Provider</th><th>Model</th><th>Last verified</th></tr></thead>
 <tbody>
 <tr><td>Anthropic (first party)</td><td><code>claude-haiku-5-5</code></td><td>2026-11-16</td></tr>
-<tr><td>OpenAI</td><td>—</td><td><em>never run against the live service</em></td></tr>
-<tr><td>Azure OpenAI</td><td>—</td><td><em>never run against the live service</em></td></tr>
-<tr><td>Claude on Bedrock</td><td>—</td><td><em>never run against the live service</em></td></tr>
-<tr><td>Claude on Vertex AI</td><td>—</td><td><em>never run against the live service</em></td></tr>
-<tr><td>Claude on Foundry</td><td>—</td><td><em>never run against the live service</em></td></tr>
+<tr><td>OpenAI</td><td>—</td><td><em>never run against the live service</em> (<a href="https://github.com/MaximumTrainer/synthetic-fabricate/issues/97">#97</a>)</td></tr>
+<tr><td>Azure OpenAI</td><td>—</td><td><em>never run against the live service</em> (<a href="https://github.com/MaximumTrainer/synthetic-fabricate/issues/98">#98</a>)</td></tr>
+<tr><td>Claude on Bedrock</td><td>—</td><td><em>never run against the live service</em> (<a href="https://github.com/MaximumTrainer/synthetic-fabricate/issues/99">#99</a>)</td></tr>
+<tr><td>Claude on Vertex AI</td><td>—</td><td><em>never run against the live service</em> (<a href="https://github.com/MaximumTrainer/synthetic-fabricate/issues/100">#100</a>)</td></tr>
+<tr><td>Claude on Foundry</td><td>—</td><td><em>never run against the live service</em> (<a href="https://github.com/MaximumTrainer/synthetic-fabricate/issues/101">#101</a>)</td></tr>
 </tbody>
 </table>
 <p>A provider without a date is supported in the sense that its adapter is written and unit-tested against the documented wire format, and <strong>not</strong> in the sense that anyone has watched it work. The first live run found one defect on the Anthropic path the canned tests had missed: the model id came back wrapped in JSON quotes.</p>

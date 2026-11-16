@@ -142,11 +142,11 @@ about 0.02 US cents per provider on the default Claude model.
 | Provider | Model | Last verified |
 | --- | --- | --- |
 | Anthropic (first party) | `claude-haiku-5-5` | 2026-11-16 |
-| OpenAI | — | *never run against the live service* |
-| Azure OpenAI | — | *never run against the live service* |
-| Claude on Bedrock | — | *never run against the live service* |
-| Claude on Vertex AI | — | *never run against the live service* |
-| Claude on Foundry | — | *never run against the live service* |
+| OpenAI | — | *never run against the live service* ([#97](https://github.com/MaximumTrainer/synthetic-fabricate/issues/97)) |
+| Azure OpenAI | — | *never run against the live service* ([#98](https://github.com/MaximumTrainer/synthetic-fabricate/issues/98)) |
+| Claude on Bedrock | — | *never run against the live service* ([#99](https://github.com/MaximumTrainer/synthetic-fabricate/issues/99)) |
+| Claude on Vertex AI | — | *never run against the live service* ([#100](https://github.com/MaximumTrainer/synthetic-fabricate/issues/100)) |
+| Claude on Foundry | — | *never run against the live service* ([#101](https://github.com/MaximumTrainer/synthetic-fabricate/issues/101)) |
 
 A provider without a date is supported in the sense that its adapter is written and unit-tested against the
 documented wire format, and **not** in the sense that anyone has watched it work. The first live run found one
