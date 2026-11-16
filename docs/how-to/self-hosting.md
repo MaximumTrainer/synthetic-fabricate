@@ -144,7 +144,7 @@ about 0.02 US cents per provider on the default Claude model.
 | Anthropic (first party) | `claude-haiku-5-5` | 2026-11-16 |
 | OpenAI | — | *never run against the live service* ([#97](https://github.com/MaximumTrainer/synthetic-fabricate/issues/97)) |
 | Azure OpenAI | — | *never run against the live service* ([#98](https://github.com/MaximumTrainer/synthetic-fabricate/issues/98)) |
-| Claude on Bedrock | — | *never run against the live service* ([#99](https://github.com/MaximumTrainer/synthetic-fabricate/issues/99)) |
+| Claude on Bedrock | — | *never run against the live service* ([#99](https://github.com/MaximumTrainer/synthetic-fabricate/issues/99)); SigV4 signing and request shape verified against a local simulator in CI |
 | Claude on Vertex AI | — | *never run against the live service* ([#100](https://github.com/MaximumTrainer/synthetic-fabricate/issues/100)) |
 | Claude on Foundry | — | *never run against the live service* ([#101](https://github.com/MaximumTrainer/synthetic-fabricate/issues/101)) |
 
