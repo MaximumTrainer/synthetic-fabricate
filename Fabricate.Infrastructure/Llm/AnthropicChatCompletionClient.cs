@@ -85,7 +85,7 @@ public sealed class AnthropicChatCompletionClient(IAnthropicClient client, strin
 
                 if (evt.TryPickStart(out var start))
                 {
-                    modelId = start.Message.Model.ToString() ?? modelId;
+                    modelId = ModelIdOf(start.Message.Model) ?? modelId;
                     inputTokens = (int)(start.Message.Usage.InputTokens);
                     continue;
                 }
@@ -268,9 +268,17 @@ public sealed class AnthropicChatCompletionClient(IAnthropicClient client, strin
             calls,
             stopReason,
             new TokenUsage((int)response.Usage.InputTokens, (int)response.Usage.OutputTokens),
-            response.Model.ToString() ?? string.Empty,
+            ModelIdOf(response.Model) ?? string.Empty,
             stopDetail);
     }
+
+    /// <summary>
+    /// The SDK's Model is an enum-struct like StopReason: its ToString() is the JSON form, quotes included, so it
+    /// reported <c>"claude-opus-5"</c> with the quotes as the model id. Raw() is the wire value. Found by the live
+    /// provider suite (#86); the canned-response tests never asserted the id.
+    /// </summary>
+    private static string? ModelIdOf(ApiEnum<string, Model> model)
+        => model.Raw();
 
     /// <summary>The SDK's StopReason is an enum-struct; its JSON form is the wire value, its ToString() is not.</summary>
     private static (LlmStopReason, string?) MapStop(ApiEnum<string, StopReason>? stopReason, RefusalStopDetails? details)

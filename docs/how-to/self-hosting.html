@@ -102,10 +102,25 @@ FABRICATE_AUDIT_SWEEP_MINUTES=360    # sweep every six hours (the default)</code
 <table>
 <thead><tr><th>Model</th><th>Fixtures as expected</th><th>Last verified</th></tr></thead>
 <tbody>
-<tr><td><code>claude-opus-5</code></td><td><em>not yet run</em> — needs <code>FABRICATE_LIVE_LLM_API_KEY</code></td><td>—</td></tr>
+<tr><td><code>claude-opus-5-5</code></td><td>18/21 over three runs (6/7 each)</td><td>2026-11-16</td></tr>
+<tr><td><code>claude-opus-5</code></td><td>17/21 over three runs (5/7, 6/7, 6/7)</td><td>2026-11-16</td></tr>
 </tbody>
 </table>
-<p>The eval fails below 6/7. One fixture going the other way is a model exercising judgement; two is the guidance no longer landing. <strong>Until a row above carries a rate, treat "the agent asks clarifying questions" as designed for and unverified</strong> — the prompt contract and the harness are covered offline, the behaviour is not.</p>
+<p>The eval fails below 6/7. One fixture going the other way is a model exercising judgement; two is the guidance no longer landing. Every miss in <code>Guided</code> and <code>Autonomous</code> mode varied between runs. One miss did not: <strong><code>review-required-asks</code> missed on every run of both models.</strong> Asked to "generate some test data" in <code>ReviewRequired</code> mode, the model requests a read-only <code>discover_schema</code> call first, which is parked for approval, so the turn ends with a pending read and no question. Nothing is written without a reviewer, so this is safe, but it costs the person an approval round-trip before they are asked anything. Treat it as a finding about the <code>ReviewRequired</code> guidance rather than noise.</p>
+<h3 id="which-providers-have-been-verified-live">Which providers have been verified live</h3>
+<p><code>LiveProviderTests</code> calls each adapter against the real provider: a plain completion, a tool call and its result round trip, a streamed reply, a streamed tool call (argument fragments reassembled), token usage, and the <code>end_turn</code> / <code>tool_use</code> / <code>max_tokens</code> stop-reason mapping. The <code>live-provider-tests</code> workflow runs it weekly and on dispatch, and lists which providers it exercised and which it skipped; see <a href="ci-integration-secrets.html#the-live-provider-suite-issue-86">CI secrets for integration tests</a>. A run costs about 0.02 US cents per provider on the default Claude model.</p>
+<table>
+<thead><tr><th>Provider</th><th>Model</th><th>Last verified</th></tr></thead>
+<tbody>
+<tr><td>Anthropic (first party)</td><td><code>claude-haiku-5-5</code></td><td>2026-11-16</td></tr>
+<tr><td>OpenAI</td><td>—</td><td><em>never run against the live service</em></td></tr>
+<tr><td>Azure OpenAI</td><td>—</td><td><em>never run against the live service</em></td></tr>
+<tr><td>Claude on Bedrock</td><td>—</td><td><em>never run against the live service</em></td></tr>
+<tr><td>Claude on Vertex AI</td><td>—</td><td><em>never run against the live service</em></td></tr>
+<tr><td>Claude on Foundry</td><td>—</td><td><em>never run against the live service</em></td></tr>
+</tbody>
+</table>
+<p>A provider without a date is supported in the sense that its adapter is written and unit-tested against the documented wire format, and <strong>not</strong> in the sense that anyone has watched it work. The first live run found one defect on the Anthropic path the canned tests had missed: the model id came back wrapped in JSON quotes.</p>
 <h3 id="artifact-storage">Artifact storage</h3>
 <p>Generated artifacts default to the local file system (<code>FABRICATE_ARTIFACTS_PATH</code>, else the OS temp directory). That is right for local use and <strong>wrong on every hosted target</strong>: Fly machines are replaced, Cloud Run and Container Apps revisions are immutable, ECS tasks restart. The files disappear and a completed run is left pointing at artifacts that no longer exist.</p>
 <p>Set <code>FABRICATE_ARTIFACT_STORE</code> to use object storage instead. Three adapters cover the field: <code>s3</code> for <strong>AWS S3, MinIO, Cloudflare R2 and Backblaze B2</strong> (one API between them), <code>azure-blob</code> for <strong>Azure Blob Storage</strong>, and <code>gcs</code> for <strong>Google Cloud Storage</strong>.</p>

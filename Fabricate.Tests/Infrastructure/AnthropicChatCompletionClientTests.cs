@@ -39,6 +39,7 @@ public sealed class AnthropicChatCompletionClientTests
         result.ToolCalls.Should().ContainSingle().Which.Should().Be(new LlmToolCall("toolu_2", "echo", """{"v":2}"""));
         result.StopReason.Should().Be(LlmStopReason.ToolUse);
         result.Usage.Should().Be(new TokenUsage(20, 8));
+        result.ModelId.Should().Be("claude-opus-5", "the wire value, not the SDK enum's JSON form with its quotes (#86)");
 
         handler.LastRequest!.RequestUri!.AbsolutePath.Should().EndWith("/v1/messages");
         handler.LastRequest.Headers.TryGetValues("x-api-key", out var keys).Should().BeTrue();
@@ -145,6 +146,7 @@ public sealed class AnthropicChatCompletionClientTests
         final.ToolCalls.Should().ContainSingle().Which.Should().Be(new LlmToolCall("toolu_9", "echo", """{"v":3}"""));
         final.StopReason.Should().Be(LlmStopReason.ToolUse);
         final.Usage.Should().Be(new TokenUsage(11, 14));
+        final.ModelId.Should().Be("claude-opus-5", "the wire value, not the SDK enum's JSON form with its quotes (#86)");
     }
 
     private static HttpResponseMessage Json(HttpStatusCode status, string json)
