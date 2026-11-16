@@ -1,0 +1,111 @@
+name: Live Provider Tests
+
+# Every LLM adapter against the real provider (#86): completion, tool round trip, streaming (text and tool-input
+# fragments), usage and stop-reason mapping. The unit suites test our mapping against wire formats we wrote down;
+# this tests it against what the provider actually returns, on a cadence, so drift is caught before an incident.
+#
+# Each provider self-skips unless its secrets are set. The first step works out which providers this run can
+# exercise and passes that list to the suite as FABRICATE_REQUIRE_LIVE_PROVIDERS, so a secret that is configured
+# but does not reach the test fails the run instead of skipping quietly. The job summary lists exercised versus
+# skipped, so a green run cannot be read as "all six providers verified".
+#
+# Cost: six small calls per provider; about 0.02 US cents per provider on the default Claude model (Haiku 5.5).
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "41 3 * * 1" # Mondays 03:41 UTC, after the integration-tests run
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_VERSION: "10.0.x"
+  DOTNET_NOLOGO: "1"
+
+jobs:
+  live-providers:
+    name: Live LLM providers
+    runs-on: ubuntu-latest
+    environment: integration
+    env:
+      # Anthropic first party (shares the key with the clarifying-question eval).
+      FABRICATE_LIVE_LLM_API_KEY: ${{ secrets.FABRICATE_LIVE_LLM_API_KEY }}
+      FABRICATE_LIVE_ANTHROPIC_MODEL: ${{ vars.FABRICATE_LIVE_ANTHROPIC_MODEL }}
+      # OpenAI proper.
+      FABRICATE_LIVE_OPENAI_API_KEY: ${{ secrets.FABRICATE_LIVE_OPENAI_API_KEY }}
+      FABRICATE_LIVE_OPENAI_MODEL: ${{ vars.FABRICATE_LIVE_OPENAI_MODEL }}
+      # Azure OpenAI.
+      FABRICATE_LIVE_AZURE_OPENAI_ENDPOINT: ${{ vars.FABRICATE_LIVE_AZURE_OPENAI_ENDPOINT }}
+      FABRICATE_LIVE_AZURE_OPENAI_API_KEY: ${{ secrets.FABRICATE_LIVE_AZURE_OPENAI_API_KEY }}
+      FABRICATE_LIVE_AZURE_OPENAI_DEPLOYMENT: ${{ vars.FABRICATE_LIVE_AZURE_OPENAI_DEPLOYMENT }}
+      # Claude on Bedrock: the AWS SDK reads the standard AWS_* variables.
+      FABRICATE_LIVE_BEDROCK_REGION: ${{ vars.FABRICATE_LIVE_BEDROCK_REGION }}
+      FABRICATE_LIVE_BEDROCK_MODEL: ${{ vars.FABRICATE_LIVE_BEDROCK_MODEL }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.FABRICATE_LIVE_AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.FABRICATE_LIVE_AWS_SECRET_ACCESS_KEY }}
+      # Claude on Vertex AI: Application Default Credentials from the service-account key below.
+      FABRICATE_LIVE_VERTEX_PROJECT_ID: ${{ vars.FABRICATE_LIVE_VERTEX_PROJECT_ID }}
+      FABRICATE_LIVE_VERTEX_LOCATION: ${{ vars.FABRICATE_LIVE_VERTEX_LOCATION }}
+      FABRICATE_LIVE_VERTEX_MODEL: ${{ vars.FABRICATE_LIVE_VERTEX_MODEL }}
+      # Claude on Microsoft Foundry.
+      FABRICATE_LIVE_FOUNDRY_RESOURCE: ${{ vars.FABRICATE_LIVE_FOUNDRY_RESOURCE }}
+      FABRICATE_LIVE_FOUNDRY_API_KEY: ${{ secrets.FABRICATE_LIVE_FOUNDRY_API_KEY }}
+      FABRICATE_LIVE_FOUNDRY_MODEL: ${{ vars.FABRICATE_LIVE_FOUNDRY_MODEL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Authenticate to Google Cloud (only when a Vertex key is configured)
+        if: ${{ env.FABRICATE_LIVE_VERTEX_PROJECT_ID != '' }}
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FABRICATE_LIVE_GCP_CREDENTIALS_JSON }}
+
+      - name: Work out which providers this run must exercise (no secret is printed)
+        run: |
+          required=""
+          add() { required="${required:+$required,}$1"; }
+          [ -n "$FABRICATE_LIVE_LLM_API_KEY" ] && add anthropic
+          [ -n "$FABRICATE_LIVE_OPENAI_API_KEY" ] && [ -n "$FABRICATE_LIVE_OPENAI_MODEL" ] && add openai
+          [ -n "$FABRICATE_LIVE_AZURE_OPENAI_API_KEY" ] && add azure-openai
+          [ -n "$FABRICATE_LIVE_BEDROCK_REGION" ] && add bedrock
+          [ -n "$FABRICATE_LIVE_VERTEX_PROJECT_ID" ] && add vertex
+          [ -n "$FABRICATE_LIVE_FOUNDRY_API_KEY" ] && add foundry
+          echo "Providers with credentials: ${required:-none}"
+          if [ -z "$required" ]; then
+            echo "::notice::No live-provider credentials are configured on the 'integration' environment; every provider will skip and say so."
+          fi
+          echo "FABRICATE_REQUIRE_LIVE_PROVIDERS=$required" >> "$GITHUB_ENV"
+
+      - run: dotnet restore Fabricate.slnx
+      - run: dotnet build Fabricate.slnx --no-restore --configuration Release
+
+      - name: Run the live-provider suite
+        run: |
+          set -o pipefail
+          dotnet test Fabricate.Tests/Fabricate.Tests.csproj --no-build --configuration Release \
+            --filter "FullyQualifiedName~LiveProviderTests" \
+            --logger "console;verbosity=detailed" | tee live-providers.log
+
+      - name: Summarise exercised versus skipped
+        if: always()
+        run: |
+          {
+            echo "## Live LLM providers"
+            echo
+            echo "| Provider | Result |"
+            echo "| --- | --- |"
+            for p in anthropic openai azure-openai bedrock vertex foundry; do
+              if grep -q "\[live-provider\] $p: EXERCISED" live-providers.log 2>/dev/null; then
+                model=$(grep -m1 -o "\[live-provider\] $p: EXERCISED against [^ ]*" live-providers.log | awk '{print $NF}')
+                echo "| $p | exercised against \`$model\` |"
+              else
+                echo "| $p | **skipped**: not verified this run |"
+              fi
+            done
+            echo
+            echo "Per-call usage is in the test log (lines starting \`[live-provider]\`)."
+          } >> "$GITHUB_STEP_SUMMARY"

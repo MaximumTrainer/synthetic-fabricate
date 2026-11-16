@@ -67,7 +67,7 @@ Whether the agent asks before acting is the model's judgement, so it can only be
 | Secret / variable | Description |
 | --- | --- |
 | `FABRICATE_LIVE_LLM_API_KEY` | An Anthropic API key. `ANTHROPIC_API_KEY` is also read, for a local run. |
-| `FABRICATE_LIVE_LLM_MODEL` | *(optional, a repository variable)* Model id; defaults to `claude-opus-5`. |
+| `FABRICATE_LIVE_LLM_MODEL` | *(optional, a repository variable)* Model id; defaults to `claude-opus-5`. Last measured rates per model are in the [self-hosting guide](self-hosting.md#whether-the-agent-asks-before-it-acts). |
 | `FABRICATE_REQUIRE_LIVE_EVAL` | *(set by CI)* `1` turns the eval's self-skip into a failure. |
 
 It costs one API call per fixture — seven at present — and reports a **pass rate** rather than asserting each
@@ -98,6 +98,35 @@ the workflow sets it once it has seen a key in the job environment, and the skip
 protection `SMOKE_REQUIRE_EXECUTION` gives the smoke suite, and it lives in the test rather than the YAML so it
 cannot be lost by editing the workflow.
 
+## The live-provider suite (issue #86)
+
+`LiveProviderTests` runs every LLM adapter against the real provider — completion, tool round trip, streamed text,
+streamed tool-input fragments, usage and stop reason — so documentation drift or an auth detail that only fails
+live is caught on a schedule rather than at the next incident. The `live-provider-tests` workflow runs it weekly
+and on dispatch, in the `integration` environment. Each provider self-skips unless its variables are set:
+
+| Provider | Secrets | Variables |
+| --- | --- | --- |
+| `anthropic` | `FABRICATE_LIVE_LLM_API_KEY` (shared with the eval) | `FABRICATE_LIVE_ANTHROPIC_MODEL` (default `claude-haiku-5-5`) |
+| `openai` | `FABRICATE_LIVE_OPENAI_API_KEY` | `FABRICATE_LIVE_OPENAI_MODEL` (required) |
+| `azure-openai` | `FABRICATE_LIVE_AZURE_OPENAI_API_KEY` | `FABRICATE_LIVE_AZURE_OPENAI_ENDPOINT`, `FABRICATE_LIVE_AZURE_OPENAI_DEPLOYMENT` |
+| `bedrock` | `FABRICATE_LIVE_AWS_ACCESS_KEY_ID`, `FABRICATE_LIVE_AWS_SECRET_ACCESS_KEY` | `FABRICATE_LIVE_BEDROCK_REGION`, `FABRICATE_LIVE_BEDROCK_MODEL` (default `anthropic.claude-haiku-5-5`) |
+| `vertex` | `FABRICATE_LIVE_GCP_CREDENTIALS_JSON` | `FABRICATE_LIVE_VERTEX_PROJECT_ID`, `FABRICATE_LIVE_VERTEX_LOCATION` (default `global`), `FABRICATE_LIVE_VERTEX_MODEL` |
+| `foundry` | `FABRICATE_LIVE_FOUNDRY_API_KEY` | `FABRICATE_LIVE_FOUNDRY_RESOURCE`, `FABRICATE_LIVE_FOUNDRY_MODEL` |
+
+The workflow passes the providers it has credentials for as `FABRICATE_REQUIRE_LIVE_PROVIDERS`, which turns a
+skip for any of them into a failure, and writes an exercised-versus-skipped table to the job summary. Every request
+is the smallest that exercises its path; a full run is six calls per provider, about 0.02 US cents on the default
+Claude model.
+
+```bash
+export ANTHROPIC_API_KEY="sk-ant-…"
+dotnet test --filter "FullyQualifiedName~LiveProviderTests" --logger "console;verbosity=detailed"
+```
+
+Each call prints its stop reason, usage and model id on a `[live-provider]` line. Deliberately breaking a mapping
+fails the matching test: sending back the wrong `tool_use_id` makes the tool round trip fail with a 400.
+
 ## Which gates which
 
 | Test class | Gate |
@@ -107,6 +136,7 @@ cannot be lost by editing the workflow.
 | `NoSqlEmulatorTests` (Cosmos DB) | `FABRICATE_COSMOS_EMULATOR=1` + Docker |
 | `NoSqlProfilerTests` (MongoDB) | Docker daemon reachable |
 | `AgentClarificationLiveEvalTests` | `FABRICATE_LIVE_LLM_API_KEY` or `ANTHROPIC_API_KEY` |
+| `LiveProviderTests` | Per provider; see [the live-provider suite](#the-live-provider-suite-issue-86) |
 
 A secret that is present but wrong produces a **failing** test, not a skipped one, so misconfiguration is visible.
 A secret that is present but **blank** counts as absent, not as wrong — see above.

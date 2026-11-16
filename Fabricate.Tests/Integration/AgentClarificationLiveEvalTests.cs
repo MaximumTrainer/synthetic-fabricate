@@ -93,7 +93,7 @@ public sealed class AgentClarificationLiveEvalTests(ITestOutputHelper output)
             return;
         }
 
-        var results = new List<(AgentClarificationEvalTests.Fixture Fixture, bool Asked, string Reply)>();
+        var results = new List<(AgentClarificationEvalTests.Fixture Fixture, Outcome Outcome, string Reply)>();
 
         foreach (var fixture in Fixtures())
         {
@@ -105,21 +105,28 @@ public sealed class AgentClarificationLiveEvalTests(ITestOutputHelper output)
 
             var reply = turn.AssistantMessage?.Content ?? string.Empty;
 
-            // Asking means exactly this: no tool ran, and the reply put a question to the user. A model that
-            // generates data and then asks a question afterwards has already acted, so the tool check comes first.
-            var asked = turn.ToolInvocations.Count == 0 && reply.Contains('?');
+            // Acting means the mutating tool was called — run or parked for review, either way the model committed
+            // to a write. Reading the schema or stating a plan is not acting. Asking means it did not act and put a
+            // question to the user. A reply that does neither (declines, stalls) matches no expectation: the first
+            // version scored "no tool and no '?'" as proceeding, which credited a refusal as success (#91).
+            var acted = turn.ToolInvocations.Any(t => t.ToolName == "generate_data");
+            var outcome = acted ? Outcome.Proceeded : reply.Contains('?') ? Outcome.Asked : Outcome.Neither;
 
-            results.Add((fixture, asked, reply));
+            results.Add((fixture, outcome, reply));
         }
 
-        var matched = results.Where(r => r.Asked == r.Fixture.ExpectsQuestion).ToList();
+        bool Matches((AgentClarificationEvalTests.Fixture Fixture, Outcome Outcome, string Reply) r)
+            => r.Outcome == (r.Fixture.ExpectsQuestion ? Outcome.Asked : Outcome.Proceeded);
+
+        var matched = results.Where(Matches).ToList();
         var rate = (double)matched.Count / results.Count;
 
         output.WriteLine($"Clarifying-question eval against {Model}: {matched.Count}/{results.Count} as expected.");
-        foreach (var (fixture, asked, reply) in results)
+        foreach (var result in results)
         {
-            var verdict = asked == fixture.ExpectsQuestion ? "ok  " : "MISS";
-            var behaviour = asked ? "asked" : "proceeded";
+            var (fixture, outcome, reply) = result;
+            var verdict = Matches(result) ? "ok  " : "MISS";
+            var behaviour = outcome.ToString().ToLowerInvariant();
             output.WriteLine(
                 $"  {verdict} {fixture.Name,-22} {fixture.Mode,-14} expected {(fixture.ExpectsQuestion ? "ask" : "proceed"),-7} got {behaviour}");
             output.WriteLine($"       {Excerpt(reply)}");
@@ -127,8 +134,10 @@ public sealed class AgentClarificationLiveEvalTests(ITestOutputHelper output)
 
         rate.Should().BeGreaterThanOrEqualTo(MinimumPassRate,
             "the clarifying-question guidance must still land; misses were {0}",
-            string.Join(", ", results.Where(r => r.Asked != r.Fixture.ExpectsQuestion).Select(r => r.Fixture.Name)));
+            string.Join(", ", results.Where(r => !Matches(r)).Select(r => r.Fixture.Name)));
     }
+
+    private enum Outcome { Asked, Proceeded, Neither }
 
     private static IEnumerable<AgentClarificationEvalTests.Fixture> Fixtures()
         => AgentClarificationEvalTests.Fixtures
@@ -157,10 +166,14 @@ public sealed class AgentClarificationLiveEvalTests(ITestOutputHelper output)
             var workspaceRepo = new InMemoryWorkspaceRepository();
             _workspaces = new WorkspaceService(workspaceRepo, new InMemoryAccountGroupRepository(), audit);
 
+            // The production tools' names, descriptions and input schemas, with the side effects removed. The first
+            // live run (#91) used a stand-in generate_data with no input schema and no discover_schema at all, and
+            // the model — correctly — declined to fire a write it could not parameterise, which the eval then
+            // scored as "asked" or "proceeded" depending on whether the refusal happened to contain a '?'.
             var tools = new ToolRegistry();
             tools.Register(new StatePlanTool());
-            tools.Register(new NoOpTool("generate_data",
-                "Generates synthetic rows into the named tables. Requires the table names and a row count for each."));
+            tools.Register(new Inert(new DiscoverSchemaTool(null!), DiscoveredSchema));
+            tools.Register(new Inert(new GenerateDataTool(null!), """{"status":"completed","runId":"eval-run"}"""));
 
             var credential = new ResolvedLlmCredential(
                 LlmProvider.Anthropic, LlmCredentialKind.ApiKey, model, apiKey, null,
@@ -190,17 +203,28 @@ public sealed class AgentClarificationLiveEvalTests(ITestOutputHelper output)
         }
     }
 
+    /// <summary>A small schema for <c>discover_schema</c> to return, so a model that looks first has something to see.</summary>
+    private const string DiscoveredSchema = """
+        {"tableCount":2,"tables":[
+          {"name":"main.users","columns":[{"name":"id","kind":"Integer"},{"name":"email","kind":"Email"},{"name":"created_at","kind":"DateTime"}],"foreignKeys":[]},
+          {"name":"main.orders","columns":[{"name":"id","kind":"Integer"},{"name":"user_id","kind":"Integer"},{"name":"total","kind":"Decimal"}],"foreignKeys":[{"name":"fk_orders_users","referencedTable":"main.users"}]}
+        ]}
+        """;
+
     /// <summary>
-    /// A tool the model can see and choose, which does nothing. Its description matters: the model's decision to
-    /// ask rather than call it depends on knowing what the call would need.
+    /// A production tool as the model sees it — name, description, input schema, content class — that does
+    /// nothing when called. What the model is shown is the thing under test, so it must not drift from what
+    /// production advertises; only the side effect is replaced.
     /// </summary>
-    private sealed class NoOpTool(string name, string description) : ITool
+    private sealed class Inert(ITool shape, string result) : ITool
     {
-        public string Name => name;
-        public string Description => description;
+        public string Name => shape.Name;
+        public string Description => shape.Description;
+        public string InputSchemaJson => shape.InputSchemaJson;
+        public PromptContentClass ContentClass => shape.ContentClass;
 
         public Task<string> ExecuteAsync(string inputJson, Guid sessionId, Guid userId, CancellationToken cancellationToken = default)
-            => Task.FromResult("""{"ok":true}""");
+            => Task.FromResult(result);
     }
 
     private sealed class FixedResolver(ResolvedLlmCredential credential) : ILlmCredentialResolver

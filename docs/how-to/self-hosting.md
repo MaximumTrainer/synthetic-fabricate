@@ -119,11 +119,38 @@ expected. The `integration-tests` workflow runs it weekly and on dispatch; see
 
 | Model | Fixtures as expected | Last verified |
 | --- | --- | --- |
-| `claude-opus-5` | *not yet run* — needs `FABRICATE_LIVE_LLM_API_KEY` | — |
+| `claude-opus-5-5` | 18/21 over three runs (6/7 each) | 2026-11-16 |
+| `claude-opus-5` | 17/21 over three runs (5/7, 6/7, 6/7) | 2026-11-16 |
 
 The eval fails below 6/7. One fixture going the other way is a model exercising judgement; two is the guidance no
-longer landing. **Until a row above carries a rate, treat "the agent asks clarifying questions" as designed for
-and unverified** — the prompt contract and the harness are covered offline, the behaviour is not.
+longer landing. Every miss in `Guided` and `Autonomous` mode varied between runs. One miss did not:
+**`review-required-asks` missed on every run of both models.** Asked to "generate some test data" in
+`ReviewRequired` mode, the model requests a read-only `discover_schema` call first, which is parked for approval,
+so the turn ends with a pending read and no question. Nothing is written without a reviewer, so this is safe, but
+it costs the person an approval round-trip before they are asked anything. Treat it as a finding about the
+`ReviewRequired` guidance rather than noise.
+
+### Which providers have been verified live
+
+`LiveProviderTests` calls each adapter against the real provider: a plain completion, a tool call and its result
+round trip, a streamed reply, a streamed tool call (argument fragments reassembled), token usage, and the
+`end_turn` / `tool_use` / `max_tokens` stop-reason mapping. The `live-provider-tests` workflow runs it weekly and on
+dispatch, and lists which providers it exercised and which it skipped; see
+[CI secrets for integration tests](ci-integration-secrets.md#the-live-provider-suite-issue-86). A run costs
+about 0.02 US cents per provider on the default Claude model.
+
+| Provider | Model | Last verified |
+| --- | --- | --- |
+| Anthropic (first party) | `claude-haiku-5-5` | 2026-11-16 |
+| OpenAI | — | *never run against the live service* ([#97](https://github.com/MaximumTrainer/synthetic-fabricate/issues/97)) |
+| Azure OpenAI | — | *never run against the live service* ([#98](https://github.com/MaximumTrainer/synthetic-fabricate/issues/98)) |
+| Claude on Bedrock | — | *never run against the live service* ([#99](https://github.com/MaximumTrainer/synthetic-fabricate/issues/99)) |
+| Claude on Vertex AI | — | *never run against the live service* ([#100](https://github.com/MaximumTrainer/synthetic-fabricate/issues/100)) |
+| Claude on Foundry | — | *never run against the live service* ([#101](https://github.com/MaximumTrainer/synthetic-fabricate/issues/101)) |
+
+A provider without a date is supported in the sense that its adapter is written and unit-tested against the
+documented wire format, and **not** in the sense that anyone has watched it work. The first live run found one
+defect on the Anthropic path the canned tests had missed: the model id came back wrapped in JSON quotes.
 
 ### Artifact storage
 
